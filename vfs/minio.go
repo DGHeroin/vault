@@ -5,6 +5,8 @@ import (
     "github.com/minio/minio-go/v7"
     "github.com/minio/minio-go/v7/pkg/credentials"
     "io"
+    "net/url"
+    "time"
 )
 
 type (
@@ -19,11 +21,13 @@ type (
         Secure    bool
     }
     ObjectInfo struct {
-        ETag        string `json:"etag"`
-        Key         string `json:"name"`
-        Size        int64  `json:"size"`
-        ContentType string `json:"contentType"`
+        ETag        string   `json:"etag"`
+        Key         string   `json:"name"`
+        Size        int64    `json:"size"`
+        ContentType string   `json:"contentType"`
+        MetaData    MetaData `json:"meta"`
     }
+    MetaData map[string]string
 )
 
 func New(opt Option) (*Client, error) {
@@ -58,12 +62,21 @@ func (c *Client) BucketDelete(name string) error {
     client := c.client
     return client.RemoveBucket(context.Background(), name)
 }
-func (c *Client) ObjectPut(bucket, key string, r io.Reader, objectSize int64) (*ObjectInfo, error) {
+func (c *Client) ObjectPut(bucket, key string, r io.Reader, objectSize int64, metas ...MetaData) (*ObjectInfo, error) {
     client := c.client
+
+    var (
+        userMeta map[string]string
+    )
+    if len(metas) > 0 {
+        userMeta = metas[0]
+    }
 
     resp, err := client.PutObject(context.Background(), bucket, key, r, objectSize, minio.PutObjectOptions{
         SendContentMd5: true,
+        UserMetadata:   userMeta,
     })
+
     if err != nil {
         return nil, err
     }
@@ -88,6 +101,24 @@ func (c *Client) ObjectRemove(bucket, key string) error {
 
     return client.RemoveObject(context.Background(), bucket, key, minio.RemoveObjectOptions{})
 }
+func (c *Client) ObjectStat(bucket, key string) (*ObjectInfo, error) {
+    client := c.client
+
+    info, err := client.StatObject(context.Background(), bucket, key, minio.GetObjectOptions{
+        Checksum: true,
+    })
+    if err != nil {
+        return nil, err
+    }
+    obj := &ObjectInfo{
+        ETag:        info.ETag,
+        Key:         info.Key,
+        Size:        info.Size,
+        ContentType: info.ContentType,
+        MetaData:    MetaData(info.UserMetadata),
+    }
+    return obj, nil
+}
 func (c *Client) ObjectsList(bucket, prefix string) <-chan ObjectInfo {
     client := c.client
 
@@ -109,4 +140,13 @@ func (c *Client) ObjectsList(bucket, prefix string) <-chan ObjectInfo {
         }
     }()
     return csh
+}
+func (c *Client) ObjectPresignedPut(bucket, key string, expires time.Duration) (*url.URL, error) {
+    return c.client.PresignedPutObject(context.Background(), bucket, key, expires)
+}
+func (c *Client) ObjectPresignedGet(bucket, key string, expires time.Duration, reqParams url.Values) (*url.URL, error) {
+    return c.client.PresignedGetObject(context.Background(), bucket, key, expires, reqParams)
+}
+func (c *Client) ObjectPresignedHead(bucket, key string, expires time.Duration, reqParams url.Values) (*url.URL, error) {
+    return c.client.PresignedHeadObject(context.Background(), bucket, key, expires, reqParams)
 }
