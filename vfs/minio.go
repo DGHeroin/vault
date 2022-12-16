@@ -130,6 +130,9 @@ func (c *Client) ObjectsList(bucket, prefix string) <-chan ObjectInfo {
     go func() {
         defer close(csh)
         for info := range ch {
+            if info.Err != nil {
+                break
+            }
             obj := ObjectInfo{
                 ETag:        info.ETag,
                 Key:         info.Key,

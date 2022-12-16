@@ -2,6 +2,7 @@ package store_redis
 
 import (
     "bytes"
+    "crypto/tls"
     "fmt"
     "github.com/DGHeroin/redcon"
     "github.com/DGHeroin/vault/store"
@@ -13,7 +14,32 @@ import (
 
 func Serve(store *store.Store, ln net.Listener) error {
     var ps redcon.PubSub
-    accept := func(conn redcon.Conn, cmd redcon.Command) {
+    return redcon.Serve(ln, acceptCommand(&ps, store),
+        func(conn redcon.Conn) bool {
+            // Use this function to accept or deny the connection.
+            // log.Printf("accept: %s", conn.RemoteAddr())
+            return true
+        },
+        func(conn redcon.Conn, err error) {
+            // This is called when the connection has been closed
+            // log.Printf("closed: %s, err: %v", conn.RemoteAddr(), err)
+        })
+}
+func ServeTLS(store *store.Store, addr string, config *tls.Config) error {
+    var ps redcon.PubSub
+    return redcon.ListenAndServeTLS(addr, acceptCommand(&ps, store),
+        func(conn redcon.Conn) bool {
+            // Use this function to accept or deny the connection.
+            // log.Printf("accept: %s", conn.RemoteAddr())
+            return true
+        },
+        func(conn redcon.Conn, err error) {
+            // This is called when the connection has been closed
+            // log.Printf("closed: %s, err: %v", conn.RemoteAddr(), err)
+        }, config)
+}
+func acceptCommand(ps *redcon.PubSub, store *store.Store) func(conn redcon.Conn, cmd redcon.Command) {
+    return func(conn redcon.Conn, cmd redcon.Command) {
         defer func() {
             if e := recover(); e != nil {
                 conn.WriteError("ERR  '" + fmt.Sprint(e) + "'")
@@ -269,17 +295,6 @@ func Serve(store *store.Store, ln net.Listener) error {
             }
         }
     }
-
-    return redcon.Serve(ln, accept,
-        func(conn redcon.Conn) bool {
-            // Use this function to accept or deny the connection.
-            // log.Printf("accept: %s", conn.RemoteAddr())
-            return true
-        },
-        func(conn redcon.Conn, err error) {
-            // This is called when the connection has been closed
-            // log.Printf("closed: %s, err: %v", conn.RemoteAddr(), err)
-        })
 }
 
 func stringGlob(pattern, subj string) bool {
